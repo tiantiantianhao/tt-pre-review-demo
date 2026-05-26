@@ -2,6 +2,16 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const statusOptions = ["通过", "提交中", "处理中", "拒绝", "已过期", "提交失败", "暂无结果", "不确定"];
+const isStaticPreview =
+  location.hostname.endsWith("github.io") ||
+  location.protocol === "file:" ||
+  new URLSearchParams(location.search).get("mode") === "static";
+const staticStoreKey = "tt-pre-review-demo-static-store-v1";
+const defaultPreviewAccount = {
+  id: "7435963782691684369",
+  name: "GitHub Pages 预览账户",
+  source: "static-preview",
+};
 
 let records = [];
 let materials = [];
@@ -32,7 +42,187 @@ function toast(message) {
   setTimeout(() => node.classList.remove("show"), 2200);
 }
 
+function readStaticStore() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(staticStoreKey) || "{}");
+    return {
+      accounts: saved.accounts?.length ? saved.accounts : [defaultPreviewAccount],
+      materials: saved.materials || [],
+      records: saved.records || [],
+    };
+  } catch {
+    return { accounts: [defaultPreviewAccount], materials: [], records: [] };
+  }
+}
+
+function writeStaticStore(nextStore) {
+  const safeStore = {
+    accounts: nextStore.accounts || [defaultPreviewAccount],
+    records: nextStore.records || [],
+    materials: (nextStore.materials || []).map((item) => ({
+      ...item,
+      previewUrl: item.previewUrl?.startsWith("blob:") ? "" : item.previewUrl,
+    })),
+  };
+  localStorage.setItem(staticStoreKey, JSON.stringify(safeStore));
+}
+
+function parseJsonBody(options) {
+  if (!options?.body) return {};
+  try {
+    return JSON.parse(options.body);
+  } catch {
+    return {};
+  }
+}
+
+function addDays(date, days) {
+  const value = new Date(date);
+  value.setDate(value.getDate() + days);
+  return value;
+}
+
+function formatUtcDateTime(date) {
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function createMockResult(record) {
+  const rejected = /reject|拒|bad|fail|违规/i.test(record.materialName || "");
+  const now = new Date();
+  return {
+    ...record,
+    status: rejected ? "拒绝" : "通过",
+    resultCreationTime: formatUtcDateTime(now),
+    resultExpirationTime: rejected ? "" : formatUtcDateTime(addDays(now, 180)),
+    rejectInfo: rejected ? "Mock 拒绝原因：素材命中演示规则，请调整素材后重新提交。" : "",
+    error: "",
+    updatedAt: now.toISOString(),
+  };
+}
+
+async function mockApi(path, options = {}) {
+  const store = readStaticStore();
+  const method = (options.method || "GET").toUpperCase();
+
+  if (method === "GET" && path === "/api/health") {
+    return { ok: true, tokenConfigured: true, advertiserConfigured: true, staticPreview: true };
+  }
+  if (method === "GET" && path === "/api/accounts") {
+    return { ok: true, accounts: store.accounts };
+  }
+  if (method === "GET" && path === "/api/materials") {
+    return { materials: store.materials };
+  }
+  if (method === "GET" && path === "/api/previews") {
+    return { records: store.records };
+  }
+  if (method === "POST" && path === "/api/settings/token") {
+    const body = parseJsonBody(options);
+    const account = {
+      id: body.advertiserId || store.accounts[0]?.id || defaultPreviewAccount.id,
+      name: body.advertiserName || body.advertiserId || store.accounts[0]?.name || defaultPreviewAccount.name,
+      source: "static-preview",
+    };
+    writeStaticStore({ ...store, accounts: [account] });
+    return { ok: true, tokenConfigured: true, advertiserConfigured: true };
+  }
+  if (method === "POST" && path === "/api/previews/submit") {
+    const body = parseJsonBody(options);
+    const submitted = [];
+    const failed = [];
+    let skipped = 0;
+    for (const material of body.materials || []) {
+      const locationCode = deriveLocation(material.name);
+      if (!locationCode) {
+        failed.push({
+          id: `mock_fail_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+          taskName: body.taskName,
+          materialId: material.id,
+          materialName: material.name,
+          materialType: material.type,
+          previewUrl: material.previewUrl || "",
+          advertiserId: body.advertiser.id,
+          advertiserName: body.advertiser.name,
+          locationCode: "",
+          status: "提交失败",
+          resultCreationTime: "",
+          resultExpirationTime: "",
+          rejectInfo: "",
+          error: "地区识别失败",
+          preReviewTaskId: "",
+          createdAt: new Date().toISOString(),
+        });
+        continue;
+      }
+      const existing = store.records.find((record) =>
+        record.status === "通过" &&
+        record.materialId === material.id &&
+        record.advertiserId === body.advertiser.id &&
+        record.locationCode === locationCode
+      );
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+      submitted.push({
+        id: `mock_rec_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+        taskName: body.taskName,
+        materialId: material.id,
+        materialName: material.name,
+        materialType: material.type,
+        previewUrl: material.previewUrl || "",
+        advertiserId: body.advertiser.id,
+        advertiserName: body.advertiser.name,
+        locationCode,
+        status: "处理中",
+        resultCreationTime: "",
+        resultExpirationTime: "",
+        rejectInfo: "",
+        error: "",
+        preReviewTaskId: `mock_task_${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    const records = [...failed, ...submitted, ...store.records];
+    writeStaticStore({ ...store, records });
+    return { ok: true, submitted, failed, skipped, records };
+  }
+  if (method === "POST" && path === "/api/previews/query") {
+    let updated = 0;
+    let checked = 0;
+    const records = store.records.map((record) => {
+      if (!["处理中", "暂无结果"].includes(record.status) || !record.preReviewTaskId) return record;
+      checked += 1;
+      updated += 1;
+      return createMockResult(record);
+    });
+    writeStaticStore({ ...store, records });
+    return { ok: true, checked, updated, records };
+  }
+  const retryMatch = path.match(/^\/api\/previews\/(.+)\/retry$/);
+  if (method === "POST" && retryMatch) {
+    const record = store.records.find((item) => item.id === retryMatch[1]);
+    if (!record) return { ok: false, message: "明细不存在" };
+    const retry = {
+      ...record,
+      id: `mock_rec_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+      status: "处理中",
+      resultCreationTime: "",
+      resultExpirationTime: "",
+      rejectInfo: "",
+      error: "",
+      preReviewTaskId: `mock_task_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    const records = [retry, ...store.records];
+    writeStaticStore({ ...store, records });
+    return { ok: true, submitted: [retry], failed: [], skipped: 0, records };
+  }
+  return { ok: false, message: "静态预览模式暂不支持该操作" };
+}
+
 async function api(path, options = {}) {
+  if (isStaticPreview) return mockApi(path, options);
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -246,6 +436,26 @@ function makeOptimisticRecords(taskName, account, chosen) {
 async function uploadLocalFiles(files) {
   const list = Array.from(files || []);
   if (!list.length) return;
+  if (isStaticPreview) {
+    const store = readStaticStore();
+    const added = list.map((file) => ({
+      id: `mat_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+      name: file.name,
+      type: file.type.startsWith("image/") ? "IMAGE" : "VIDEO",
+      previewUrl: URL.createObjectURL(file),
+      createdAt: new Date().toISOString().slice(0, 10),
+      spend: "-",
+      roi: "-",
+      ttMaterialId: "",
+    }));
+    materials = [...added, ...store.materials];
+    added.forEach((item) => selectedMaterialIds.add(item.id));
+    writeStaticStore({ ...store, materials });
+    updateLocationFilters();
+    renderMaterials();
+    toast(`已添加 ${added.length} 个本地素材`);
+    return;
+  }
   const form = new FormData();
   list.forEach((file) => form.append("files", file));
   const response = await fetch("/api/materials/upload", { method: "POST", body: form });
@@ -271,7 +481,7 @@ async function loadAll() {
   materials = materialPayload.materials || [];
   records = recordPayload.records || [];
   const ready = health.tokenConfigured && health.advertiserConfigured && accounts.length;
-  $("#apiState").textContent = ready ? `已配置广告账户：${accounts[0].id}` : (accountPayload.message || "未配置广告账户");
+  $("#apiState").textContent = health.staticPreview ? "GitHub Pages 预览模式（Mock）" : ready ? `已配置广告账户：${accounts[0].id}` : (accountPayload.message || "未配置广告账户");
   $("#apiState").className = `state-pill ${ready ? "ready" : "warn"}`;
   fillSelects();
   updateLocationFilters();

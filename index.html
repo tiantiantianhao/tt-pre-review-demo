@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AdMAX - TT素材预审</title>
+    <link rel="stylesheet" href="tt-pre-review-app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div>
+          <a class="brand" href="/">
+            <span class="brand-mark"></span>
+            <span>AdMAX</span>
+          </a>
+          <nav class="nav">
+            <a class="nav-row"><span class="nav-icon"></span><span>落地页管理</span><span class="caret"></span></a>
+            <button class="nav-parent" type="button"><span class="nav-icon"></span><span>优化师工作台</span><span class="caret"></span></button>
+            <a class="nav-child">优化师归属</a>
+            <a class="nav-child">广告创编</a>
+            <a class="nav-child active">TT素材预审</a>
+            <a class="nav-child">拒登案例库</a>
+            <a class="nav-row"><span class="nav-icon"></span><span>素材管理</span><span class="caret"></span></a>
+            <a class="nav-row"><span class="nav-icon"></span><span>社媒工作坊</span><span class="caret"></span></a>
+            <a class="nav-row"><span class="nav-icon"></span><span>系统管理</span><span class="caret"></span></a>
+            <a class="nav-row"><span class="nav-icon"></span><span>配置中心</span><span class="caret"></span></a>
+          </nav>
+        </div>
+        <button class="profile" type="button"><span class="avatar">H</span><span>hao.tian</span><span>•••</span></button>
+      </aside>
+
+      <main class="main">
+        <header class="page-head">
+          <div>
+            <h1>TT素材预审</h1>
+            <p>预审结果有效期 180 天，过期后可重新提交</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" id="openToken" type="button">配置 API</button>
+            <button class="btn primary" id="openCreate" type="button">+ 新建预审任务</button>
+          </div>
+        </header>
+
+        <section class="panel">
+          <div class="filters">
+            <div class="field"><label>素材</label><input id="filterMaterial" class="input" placeholder="素材ID / 素材名称" /></div>
+            <div class="field"><label>广告账户</label><select id="filterAccount" class="select" multiple></select></div>
+            <div class="field"><label>地区</label><select id="filterLocation" class="select" multiple></select></div>
+            <div class="field"><label>预审状态</label><select id="filterStatus" class="select" multiple></select></div>
+          </div>
+          <div class="filter-actions">
+            <button class="btn primary" id="queryRecords" type="button">查询</button>
+            <button class="btn" id="resetFilters" type="button">重置</button>
+            <span id="apiState" class="state-pill">检查接口中</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <colgroup>
+                <col style="width: 82px" />
+                <col style="width: 86px" />
+                <col style="width: 230px" />
+                <col style="width: 230px" />
+                <col style="width: 70px" />
+                <col style="width: 96px" />
+                <col style="width: 120px" />
+                <col style="width: 120px" />
+                <col style="width: 210px" />
+                <col style="width: 170px" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>素材ID</th>
+                  <th>缩略图</th>
+                  <th>素材名称</th>
+                  <th>广告账户</th>
+                  <th>地区</th>
+                  <th>预审状态</th>
+                  <th>结果生成时间</th>
+                  <th>过期时间</th>
+                  <th>拒绝原因/建议</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="recordBody"></tbody>
+            </table>
+          </div>
+          <div class="pagination"><span id="recordCount" class="muted">共 0 条</span></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="drawer-mask" id="createDrawer">
+      <section class="drawer">
+        <header class="drawer-head">
+          <h2>新建TT素材预审任务</h2>
+          <button class="close" data-close="createDrawer" type="button">×</button>
+        </header>
+        <div class="drawer-body">
+          <div class="notice"><strong>提示</strong><span>仅允许从 TT 渠道素材中选择素材。预审地区自动取素材名称首字段，预审通过结果有效期为 180 天。</span></div>
+          <div class="form-grid">
+            <label>任务名称 <span class="required">*</span></label>
+            <div><input id="taskName" class="input" value="AU素材预审-260525-1" maxlength="20" /><div class="helper">最多20个字符。</div></div>
+
+            <label>选择广告账户 <span class="required">*</span></label>
+            <div>
+              <select id="accountSelect" class="select"></select>
+              <div class="helper">支持单选，选项展示账户名称和广告账户 ID。</div>
+            </div>
+
+            <label>选择素材 <span class="required">*</span></label>
+            <div><button class="btn ghost-green" id="openMaterial" type="button">+ 从本地批量选取素材（0）</button><div class="helper">支持批量选择本地视频/图片，系统自动读取文件名首字段作为预审地区。</div></div>
+          </div>
+        </div>
+        <footer class="drawer-foot">
+          <button class="btn" data-close="createDrawer" type="button">取消</button>
+          <button class="btn primary" id="submitTask" type="button">提交预审</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-mask" id="materialModal">
+      <section class="modal wide">
+        <header class="modal-head">
+          <h2>选择TT素材</h2>
+          <button class="close" data-close="materialModal" type="button">×</button>
+        </header>
+        <div class="modal-body">
+          <div class="notice"><strong>已锁定渠道</strong><span>创建 TT 预审任务时，素材渠道固定为 TT。已过审素材会标记覆盖情况，提交时默认跳过有效通过组合。</span></div>
+          <div class="local-picker">
+            <input id="localFileInput" type="file" multiple accept="video/*,image/*" hidden />
+            <button class="btn ghost-green" id="pickLocalFiles" type="button">批量选择本地素材</button>
+            <span class="muted">素材会先保存到本地服务，提交预审时自动上传到所选 TT 广告账户。</span>
+          </div>
+
+          <div class="filters compact">
+            <div class="field"><label>地区</label><select id="materialLocationFilter" class="select"><option value="">全部</option></select></div>
+            <div class="field"><label>类型</label><select id="materialTypeFilter" class="select"><option value="">全部</option><option value="VIDEO">视频</option><option value="IMAGE">图片</option></select></div>
+            <div class="field"><label>关键词</label><input id="materialKeyword" class="input" placeholder="标题 / 标签 / 描述" /></div>
+            <button class="btn primary" id="filterMaterials" type="button">查询</button>
+          </div>
+
+          <div class="table-wrap modal-table">
+            <table>
+              <colgroup>
+                <col style="width: 44px" />
+                <col style="width: 82px" />
+                <col style="width: 360px" />
+                <col style="width: 72px" />
+                <col style="width: 72px" />
+                <col style="width: 170px" />
+                <col style="width: 110px" />
+                <col style="width: 86px" />
+                <col style="width: 72px" />
+              </colgroup>
+              <thead>
+                <tr><th></th><th>ID</th><th>素材名称</th><th>地区</th><th>类型</th><th>TT预审情况</th><th>制作日期</th><th>花费</th><th>ROI</th></tr>
+              </thead>
+              <tbody id="materialBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <footer class="modal-foot">
+          <span id="selectedHint" class="muted">已选 0 项</span>
+          <div class="toolbar-actions">
+            <button class="btn" data-close="materialModal" type="button">取消</button>
+            <button class="btn primary" id="confirmMaterials" type="button">确定</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-mask" id="previewModal">
+      <section class="modal preview">
+        <header class="modal-head">
+          <h2>查看素材</h2>
+          <button class="close" data-close="previewModal" type="button">×</button>
+        </header>
+        <div class="modal-body">
+          <div id="previewArt" class="preview-art"></div>
+          <h3 id="previewTitle"></h3>
+          <p id="previewMeta" class="muted"></p>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-mask" id="tokenModal">
+      <section class="modal token">
+        <header class="modal-head">
+          <h2>配置 TikTok API</h2>
+          <button class="close" data-close="tokenModal" type="button">×</button>
+        </header>
+        <div class="modal-body">
+          <p class="muted">Access Token 和广告账户 ID 只保存在当前本地服务进程内，不写入前端文件和本地数据文件。服务重启后需要重新配置。</p>
+          <input id="tokenInput" class="input" type="password" placeholder="粘贴 TikTok Access Token" />
+          <input id="advertiserIdInput" class="input" placeholder="广告账户 ID / Advertiser ID" style="margin-top:10px" />
+          <input id="advertiserNameInput" class="input" placeholder="账户名称（可选，用于页面展示）" style="margin-top:10px" />
+        </div>
+        <footer class="modal-foot">
+          <button class="btn" data-close="tokenModal" type="button">取消</button>
+          <button class="btn primary" id="saveToken" type="button">保存配置</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script src="tt-pre-review-app.js"></script>
+  </body>
+</html>
